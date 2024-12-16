@@ -2,7 +2,7 @@
 
 Built using AWS Lambda, S3, and API gateway 
 
-## Purpose: to practice
+## Purpose: to practice...
 
 ### Serverless Computing and Cloud Architecture:
   - Designed and implemented a serverless application using AWS Lambda, S3, and API Gateway.
