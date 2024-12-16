@@ -1,0 +1,86 @@
+#
+# Retrieves and returns all the jobs in the 
+# BenfordApp database.
+#
+
+import json
+import boto3
+import os
+import datatier
+import requests
+
+from configparser import ConfigParser
+
+def lambda_handler(event, context):
+    try:
+        print("**STARTING**")
+        print("**lambda: proj03_jobs**")
+        
+        config_file = 'benfordapp-config.ini'
+        os.environ['AWS_SHARED_CREDENTIALS_FILE'] = config_file
+        
+        configur = ConfigParser()
+        configur.read(config_file)
+      
+        rds_endpoint = configur.get('rds', 'endpoint')
+        rds_portnum = int(configur.get('rds', 'port_number'))
+        rds_username = configur.get('rds', 'user_name')
+        rds_pwd = configur.get('rds', 'user_pwd')
+        rds_dbname = configur.get('rds', 'db_name')
+        
+        print("**Opening connection**")
+        dbConn = datatier.get_dbConn(rds_endpoint, rds_portnum, rds_username, rds_pwd, rds_dbname)
+        
+        print("**Accessing request headers to get authentication token**")
+        if "headers" not in event:
+            msg = "no headers in request"
+            print("**ERROR:", msg)
+            return {'statusCode': 400, 'body': json.dumps(msg)}
+        
+        headers = event["headers"]
+        if "Authentication" not in headers:
+            msg = "no security credentials in request"
+            print("**ERROR:", msg)
+            return {'statusCode': 400, 'body': json.dumps(msg)}
+        
+        token = headers["Authentication"]
+        
+        auth_config_file = 'authsvc-client-config.ini'
+        configur.read(auth_config_file)
+        auth_url = configur.get('client', 'webservice') + "/auth"
+        
+        print(f"**Calling authentication service at {auth_url}**")
+        data = {"token": token}
+        auth_response = requests.post(auth_url, json=data)
+        
+        if auth_response.status_code == 401:
+            msg = auth_response.json()
+            print("**ERROR: Authentication failed:", msg)
+            return {'statusCode': 401, 'body': json.dumps(msg)}
+        
+        if auth_response.status_code in [400, 500]:
+            msg = auth_response.json()
+            print("**ERROR: Auth service failed:", msg)
+            return {'statusCode': 500, 'body': json.dumps(msg)}
+        
+        if auth_response.status_code > 200:
+            msg = f"Authentication service returned status {auth_response.status_code}"
+            print("**ERROR:", msg)
+            return {'statusCode': 500, 'body': json.dumps(msg)}
+
+        auth_body = auth_response.json()
+        userid = auth_body 
+        
+        print(f"**Authenticated user with userid: {userid}**")
+        
+        print("**Retrieving data for authenticated user**")
+        sql = "SELECT * FROM jobs WHERE userid = %s ORDER BY jobid"
+        rows = datatier.retrieve_all_rows(dbConn, sql, (userid,))
+        
+        print("**DONE, returning rows**")
+        return {'statusCode': 200, 'body': json.dumps(rows)}
+    
+    except Exception as err:
+        print("**ERROR**")
+        print(str(err))
+        return {'statusCode': 500, 'body': json.dumps(str(err))}
